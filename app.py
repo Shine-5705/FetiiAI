@@ -109,13 +109,6 @@ def create_main_interface():
             with gr.TabItem("AI Assistant"):
                 with gr.Row():
                     with gr.Column(scale=3):
-                        # AI Status Display
-                        ai_status_display = gr.Textbox(
-                            value=get_ai_status(),
-                            label="AI Status",
-                            interactive=False
-                        )
-                        
                         # Example questions
                         gr.Markdown("### Quick Start Questions:")
                         
@@ -144,43 +137,12 @@ def create_main_interface():
                         )
                         
                         # Button functions
-                        def send_question(question):
-                            return question
-                        
                         q1_btn.click(lambda: "What are the peak hours for rideshare?", outputs=chatbot_interface.textbox)
                         q2_btn.click(lambda: "Tell me about West Campus pickups", outputs=chatbot_interface.textbox)
                         q3_btn.click(lambda: "Show me the busiest locations", outputs=chatbot_interface.textbox)
                         q4_btn.click(lambda: "How many large groups ride?", outputs=chatbot_interface.textbox)
                     
                     with gr.Column(scale=1):
-                        # Configuration Panel
-                        gr.Markdown("### AI Configuration")
-                        
-                        api_key_input = gr.Textbox(
-                            label="Gemini API Key",
-                            placeholder="Enter your Gemini API key",
-                            type="password",
-                            value=os.getenv('GEMINI_API_KEY', '')
-                        )
-                        
-                        use_ai_toggle = gr.Checkbox(
-                            label="Enable AI Responses",
-                            value=True
-                        )
-                        
-                        config_btn = gr.Button("Apply Configuration", variant="primary")
-                        config_status = gr.Textbox(label="Status", interactive=False)
-                        
-                        def update_config(api_key, use_ai):
-                            message, status = update_configuration(api_key, use_ai)
-                            return message, status
-                        
-                        config_btn.click(
-                            update_config,
-                            inputs=[api_key_input, use_ai_toggle],
-                            outputs=[config_status, ai_status_display]
-                        )
-                        
                         # Quick Stats
                         gr.Markdown("### Quick Stats")
                         stats_display = gr.Markdown(get_quick_stats())
@@ -231,52 +193,10 @@ def create_main_interface():
                         
                         gr.Markdown("### Location Comparison")
                         gr.Plot(value=viz['location_comparison'])
-            
-            # Setup Instructions Tab
-            with gr.TabItem("Setup Guide"):
-                gr.Markdown("""
-                # Quick Setup Guide
-
-                ## 1. Get Your Gemini API Key
-                - Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
-                - Sign in with your Google account
-                - Click "Create API Key"
-                - Copy your API key (starts with "AIza")
-
-                ## 2. Configure the Assistant
-                - Go to the "AI Assistant" tab
-                - Enter your API key in the configuration panel
-                - Enable "AI Responses"
-                - Click "Apply Configuration"
-
-                ## 3. Environment Variables (Optional)
-                Create a `.env` file in your project directory:
-                ```
-                GEMINI_API_KEY=your_api_key_here
-                USE_AI=true
-                ```
-
-                ## 4. Status Indicators
-                - ✅ **Gemini AI Active** - Enhanced natural language responses
-                - ⚠️ **Pattern-based Mode** - Basic responses (configure AI above)
-
-                ## 5. Test Your Setup
-                Try asking questions like:
-                - "Hello, how are you?"
-                - "What are the peak hours for rideshare?"
-                - "Tell me about West Campus pickups"
-                - "Show me rideshare trends"
-
-                ## Pro Tips
-                - Gemini AI provides more natural, conversational responses
-                - Free tier includes 15 requests per minute and 1 million tokens per month
-                - The system automatically falls back to pattern-based responses if AI is unavailable
-                - Your conversations are enhanced with real Austin rideshare data context
-                """)
         
         # Footer
         gr.Markdown("---")
-        gr.Markdown("**Powered by Fetii AI** • Enhanced with Gemini AI • Real Austin Data • Advanced Analytics")
+        gr.Markdown("**Powered by Fetii AI** • Enhanced with AI • Real Austin Data • Advanced Analytics")
     
     return demo
 
