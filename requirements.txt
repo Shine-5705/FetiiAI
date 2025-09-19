@@ -4,3 +4,4 @@ plotly
 numpy
 python-dateutil
 streamlit
+dotenv
