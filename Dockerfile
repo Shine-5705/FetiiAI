@@ -1,5 +1,4 @@
-# Use Python 3.11 slim image as base
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
@@ -37,10 +36,6 @@ RUN chmod +x /app
 
 # Expose port
 EXPOSE 7860
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:7860/ || exit 1
 
 # Run the application
 CMD ["python", "app.py"]
