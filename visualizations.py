@@ -9,14 +9,13 @@ from data_processor import DataProcessor
 def create_visualizations(data_processor: DataProcessor) -> Dict[str, Any]:
     """
     Create all visualizations for the Fetii dashboard.
-    Compatible with both Streamlit and Gradio interfaces.
     """
     insights = data_processor.get_quick_insights()
     df = data_processor.df
     
     visualizations = {}
     
-    # Core visualizations - optimized for Gradio display
+    # Core visualizations
     visualizations['hourly_distribution'] = create_hourly_chart(insights['hourly_distribution'])
     visualizations['group_size_distribution'] = create_group_size_chart(insights['group_size_distribution'])
     visualizations['popular_locations'] = create_locations_chart(insights['top_pickups'])
@@ -49,21 +48,21 @@ def create_hourly_chart(hourly_data: Dict[int, int]) -> go.Figure:
     
     fig = go.Figure()
     
-    # Create modern gradient colors based on intensity
+    # Create gradient colors based on intensity
     max_count = max(counts)
     colors = []
     for count in counts:
         intensity = count / max_count
         if intensity > 0.8:
-            colors.append('#667eea')  # Primary gradient start
+            colors.append('#dc2626')  # Red for peak
         elif intensity > 0.6:
-            colors.append('#764ba2')  # Primary gradient end
+            colors.append('#ea580c')  # Orange-red
         elif intensity > 0.4:
-            colors.append('#f093fb')  # Secondary gradient start
+            colors.append('#d97706')  # Orange
         elif intensity > 0.2:
-            colors.append('#4facfe')  # Success gradient
+            colors.append('#3b82f6')  # Blue
         else:
-            colors.append('#9ca3af')  # Gray for low activity
+            colors.append('#6b7280')  # Gray for low activity
     
     fig.add_trace(go.Bar(
         x=hour_labels,
@@ -83,15 +82,15 @@ def create_hourly_chart(hourly_data: Dict[int, int]) -> go.Figure:
         title={
             'text': 'Trip Distribution by Hour',
             'x': 0.5,
-            'font': {'size': 16, 'color': '#1f2937', 'family': 'Inter'}
+            'font': {'size': 18, 'color': '#1f2937', 'family': 'Inter'}
         },
         xaxis_title='Hour of Day',
         yaxis_title='Number of Trips',
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font={'color': '#374151', 'family': 'Inter'},
-        height=280,
-        margin=dict(t=50, b=40, l=40, r=40),
+        height=320,
+        margin=dict(t=60, b=50, l=50, r=50),
         xaxis=dict(
             showgrid=True,
             gridwidth=1,
@@ -115,11 +114,11 @@ def create_group_size_chart(group_data: Dict[int, int]) -> go.Figure:
     sizes = list(group_data.keys())
     counts = list(group_data.values())
     
-    # Enhanced modern color palette with gradients
+    # Modern color palette
     colors = [
-        '#667eea', '#764ba2', '#f093fb', '#f5576c',
-        '#4facfe', '#00f2fe', '#43e97b', '#38f9d7',
-        '#fa709a', '#fee140', '#a8edea', '#fed6e3'
+        '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
+        '#8b5cf6', '#06b6d4', '#84cc16', '#f97316',
+        '#ec4899', '#6366f1', '#14b8a6', '#eab308'
     ]
     
     fig = go.Figure()
@@ -134,22 +133,30 @@ def create_group_size_chart(group_data: Dict[int, int]) -> go.Figure:
         hovertemplate='<b>%{label}</b><br>Trips: %{value}<br>Percentage: %{percent}<extra></extra>',
         textinfo='label+percent',
         textposition='auto',
-        textfont=dict(color='white', size=11, family='Inter'),
-        hole=0.4
+        textfont=dict(color='white', size=14, family='Inter'),
+        hole=0.3  # Reduced hole size to make chart appear larger
     ))
     
     fig.update_layout(
         title={
             'text': 'Group Size Distribution',
             'x': 0.5,
-            'font': {'size': 16, 'color': '#1f2937', 'family': 'Inter'}
+            'font': {'size': 18, 'color': '#1f2937', 'family': 'Inter'}
         },
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font={'color': '#374151', 'family': 'Inter'},
-        height=280,
-        margin=dict(t=50, b=40, l=40, r=40),
-        showlegend=False
+        height=500,  # Increased height from 320 to 500
+        width=500,   # Added explicit width
+        margin=dict(t=60, b=50, l=50, r=50),
+        showlegend=True,  # Show legend to make it more informative
+        legend=dict(
+            orientation="v",
+            yanchor="middle",
+            y=0.5,
+            xanchor="left",
+            x=1.05
+        )
     )
     
     return fig
@@ -169,17 +176,12 @@ def create_locations_chart(pickup_data: list) -> go.Figure:
     
     fig = go.Figure()
     
-    # Enhanced gradient colors with modern palette
+    # Gradient colors
     max_count = max(counts)
-    base_colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe', '#43e97b', '#38f9d7']
     colors = []
-    for i, count in enumerate(counts):
-        base_color = base_colors[i % len(base_colors)]
-        # Convert hex to rgba with opacity based on intensity
-        hex_color = base_color.lstrip('#')
-        rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+    for count in counts:
         intensity = count / max_count
-        colors.append(f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {0.6 + intensity * 0.4})')
+        colors.append(f'rgba(59, 130, 246, {0.4 + intensity * 0.6})')
     
     fig.add_trace(go.Bar(
         x=counts,
@@ -201,15 +203,15 @@ def create_locations_chart(pickup_data: list) -> go.Figure:
         title={
             'text': 'Top Pickup Locations',
             'x': 0.5,
-            'font': {'size': 16, 'color': '#1f2937', 'family': 'Inter'}
+            'font': {'size': 18, 'color': '#1f2937', 'family': 'Inter'}
         },
         xaxis_title='Number of Pickups',
         yaxis_title='',
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font={'color': '#374151', 'family': 'Inter'},
-        height=280,
-        margin=dict(t=50, b=40, l=120, r=40),
+        height=320,
+        margin=dict(t=60, b=50, l=140, r=50),
         yaxis=dict(
             autorange="reversed",
             showline=True,
@@ -273,27 +275,15 @@ def create_time_heatmap(df: pd.DataFrame) -> go.Figure:
         title={
             'text': 'Trip Patterns by Day & Hour',
             'x': 0.5,
-            'font': {'size': 16, 'color': '#1f2937', 'family': 'Inter', 'weight': 700}
+            'font': {'size': 18, 'color': '#1f2937', 'family': 'Inter'}
         },
         xaxis_title='Hour of Day',
         yaxis_title='Day of Week',
-        plot_bgcolor='rgba(248, 250, 252, 0.5)',
+        plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         font={'color': '#374151', 'family': 'Inter'},
-        height=350,
-        margin=dict(t=50, b=40, l=100, r=40),
-        xaxis=dict(
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(156, 163, 175, 0.3)',
-            tickfont=dict(size=11)
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(156, 163, 175, 0.3)',
-            tickfont=dict(size=11)
-        )
+        height=400,
+        margin=dict(t=60, b=50, l=100, r=50)
     )
     
     return fig

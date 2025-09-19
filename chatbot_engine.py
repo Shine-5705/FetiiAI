@@ -1,25 +1,46 @@
 import re
-from typing import Dict, List, Any, Tuple
+import json
+import requests
+from typing import Dict, List, Any, Tuple, Optional
 from data_processor import DataProcessor
 import utils
 
-class FetiiChatbot:
+class EnhancedFetiiChatbot:
     """
-    GPT-style chatbot that can answer questions about Fetii rideshare data.
+    Enhanced conversational chatbot with Google Gemini AI integration for Fetii rideshare data analysis.
+    Falls back to pattern-based responses when AI is unavailable.
     """
     
-    def __init__(self, data_processor: DataProcessor):
-        """Initialize the chatbot with a data processor."""
+    def __init__(self, data_processor: DataProcessor, use_ai: bool = True, gemini_api_key: str = None):
+        """Initialize the enhanced chatbot with Gemini AI capabilities."""
         self.data_processor = data_processor
         self.conversation_history = []
+        self.use_ai = use_ai
+        self.gemini_api_key = gemini_api_key
+        self.ai_available = False
         
+        # Initialize Gemini AI if API key provided
+        if self.use_ai and self.gemini_api_key:
+            self._setup_gemini()
+        
+        # Fallback pattern-based system
         self.query_patterns = {
+            'greetings': [
+                r'^(?:hi|hello|hey|good morning|good afternoon|good evening|greetings?)(?:\s+.*)?$',
+                r'^(?:what\'?s up|how are you|how\'?s it going|sup)(?:\s+.*)?$',
+                r'^(?:thanks?|thank you|thx|appreciate it)(?:\s+.*)?$'
+            ],
+            'casual_conversation': [
+                r'^(?:how are you|what are you|who are you|what can you do)(?:\s+.*)?$',
+                r'^(?:tell me about yourself|what\'?s your name|introduce yourself)(?:\s+.*)?$',
+                r'^(?:help|what can you help with|what do you do)(?:\s+.*)?$',
+                r'^(?:i\'?m (?:good|fine|okay|great|tired|busy))(?:\s+.*)?$'
+            ],
             'location_stats': [
                 r'how many.*(?:groups?|trips?).*(?:went to|to|from)\s+([^?]+?)(?:\s+(?:last|this|yesterday|today|week|month|year).*?)?[?.]?$',
                 r'(?:trips?|groups?).*(?:to|from)\s+([^?]+?)(?:\s+(?:last|this|yesterday|today|week|month|year).*?)?[?.]?$',
                 r'tell me about\s+([^?]+?)(?:\s+(?:last|this|yesterday|today|week|month|year).*?)?[?.]?$',
                 r'stats for\s+([^?]+?)(?:\s+(?:last|this|yesterday|today|week|month|year).*?)?[?.]?$',
-                r'(?:show me|find|search)\s+([^?]+?)(?:\s+(?:trips?|data|stats))?(?:\s+(?:last|this|yesterday|today|week|month|year).*?)?[?.]?$'
             ],
             'time_patterns': [
                 r'when do.*groups?.*ride',
@@ -38,13 +59,6 @@ class FetiiChatbot:
                 r'most popular.*locations?',
                 r'busiest.*locations?',
                 r'hottest spots?',
-                r'show.*(?:pickup|drop-?off|locations?)',
-                r'list.*locations?'
-            ],
-            'demographics': [
-                r'(\d+)[-–](\d+) year[- ]olds?',
-                r'age group',
-                r'demographics?'
             ],
             'general_stats': [
                 r'how many total',
@@ -56,91 +70,263 @@ class FetiiChatbot:
                 r'total trips'
             ]
         }
-        
-        self.time_patterns = [
-            r'\s+(?:last|this|yesterday|today)\s+(?:week|month|year|night)',
-            r'\s+(?:last|this)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)',
-            r'\s+(?:in\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december)',
-            r'\s+(?:last|this|next)\s+\w+',
-            r'\s+(?:yesterday|today|tonight)',
-            r'\s+\d{1,2}\/\d{1,2}\/\d{2,4}',
-            r'\s+\d{1,2}-\d{1,2}-\d{2,4}'
-        ]
+    
+    def _setup_gemini(self):
+        """Setup Gemini AI connection."""
+        try:
+            # Test Gemini API connection with minimal request
+            test_payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": "Hi"}
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.7,
+                    "maxOutputTokens": 10
+                }
+            }
+            
+            response = requests.post(
+                f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={self.gemini_api_key}',
+                headers={'Content-Type': 'application/json'},
+                json=test_payload,
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                self.ai_available = True
+                print("✅ Gemini AI connected successfully")
+            elif response.status_code == 429:
+                print("⚠️ Gemini API rate limit reached - falling back to pattern-based responses")
+                self.ai_available = False
+            elif response.status_code == 400:
+                print("⚠️ Invalid Gemini API key or request")
+                self.ai_available = False
+            else:
+                print(f"⚠️ Gemini AI connection failed: {response.status_code}")
+                self.ai_available = False
+                
+        except Exception as e:
+            print(f"⚠️ Failed to connect to Gemini AI: {str(e)}")
+            self.ai_available = False
     
     def process_query(self, user_query: str) -> str:
         """Process a user query and return an appropriate response."""
-        user_query = user_query.lower().strip()
+        user_query = user_query.strip()
         
         self.conversation_history.append({"role": "user", "content": user_query})
         
         try:
-            query_type, params = self._parse_query(user_query)
-            response = self._generate_response(query_type, params, user_query)
-            self.conversation_history.append({"role": "assistant", "content": response})
+            # Get relevant data context
+            context = self._get_data_context(user_query)
             
+            # Try AI response first if available
+            if self.ai_available:
+                ai_response = self._get_gemini_response(user_query, context)
+                if ai_response:
+                    self.conversation_history.append({"role": "assistant", "content": ai_response})
+                    return ai_response
+            
+            # Fallback to pattern-based response
+            response = self._pattern_based_response(user_query.lower())
+            self.conversation_history.append({"role": "assistant", "content": response})
             return response
             
         except Exception as e:
-            error_response = ("I'm having trouble understanding that question. "
-                            "Try asking about specific locations, times, or group sizes. "
-                            "For example: 'How many groups went to The Aquarium on 6th?' or "
-                            "'What are the peak hours for large groups?'")
+            error_response = ("I'm having a bit of trouble processing that request. "
+                            "Let me help you explore Austin rideshare data - try asking about specific locations, "
+                            "time patterns, or group sizes. What would you like to discover?")
             return error_response
     
-    def _clean_location_from_query(self, location_text: str) -> str:
-        """Clean time references from location text."""
-        cleaned = location_text.strip()
+    def _get_data_context(self, query: str) -> str:
+        """Extract relevant data context based on the query."""
+        insights = self.data_processor.get_quick_insights()
+        query_lower = query.lower()
         
-        for pattern in self.time_patterns:
-            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+        # Base context always included
+        context_parts = [
+            f"Total Austin rideshare trips analyzed: {insights['total_trips']:,}",
+            f"Average group size: {insights['avg_group_size']:.1f} passengers",
+            f"Peak activity hour: {utils.format_time(insights['peak_hour'])}",
+            f"Large groups (6+): {insights['large_groups_pct']:.1f}% of all trips"
+        ]
         
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        # Add query-specific context
+        if any(word in query_lower for word in ['location', 'place', 'pickup', 'dropoff', 'where', 'destination']):
+            top_pickups = dict(list(insights['top_pickups'])[:5])
+            top_dropoffs = dict(list(insights['top_dropoffs'])[:5])
+            context_parts.extend([
+                f"Top pickup locations: {top_pickups}",
+                f"Top destinations: {top_dropoffs}"
+            ])
         
-        return cleaned
+        if any(word in query_lower for word in ['time', 'hour', 'peak', 'busy', 'when']):
+            time_data = self.data_processor.get_time_patterns()
+            hourly_top = dict(sorted(time_data['hourly_counts'].items(), key=lambda x: x[1], reverse=True)[:5])
+            context_parts.append(f"Hourly trip distribution: {hourly_top}")
+        
+        if any(word in query_lower for word in ['group', 'size', 'passenger', 'people']):
+            group_dist = dict(list(insights['group_size_distribution'].items())[:8])
+            context_parts.append(f"Group size distribution: {group_dist}")
+        
+        # Extract specific location if mentioned
+        potential_locations = self._extract_locations_from_query(query)
+        if potential_locations:
+            for location in potential_locations[:2]:  # Limit to 2 locations
+                stats = self.data_processor.get_location_stats(location)
+                if stats['pickup_count'] > 0 or stats['dropoff_count'] > 0:
+                    context_parts.append(
+                        f"'{location}' stats: {stats['pickup_count']} pickups, "
+                        f"{stats['dropoff_count']} dropoffs"
+                    )
+        
+        return "\n".join(context_parts)
+    
+    def _extract_locations_from_query(self, query: str) -> List[str]:
+        """Extract potential location names from the query."""
+        # Get all known locations
+        all_pickups = self.data_processor.df['pickup_main'].unique()
+        all_dropoffs = self.data_processor.df['dropoff_main'].unique()
+        all_locations = set(list(all_pickups) + list(all_dropoffs))
+        
+        query_lower = query.lower()
+        found_locations = []
+        
+        for location in all_locations:
+            if location.lower() in query_lower:
+                found_locations.append(location)
+        
+        return found_locations
+    
+    def _get_gemini_response(self, query: str, context: str) -> Optional[str]:
+        """Get response from Gemini AI with improved error handling."""
+        try:
+            # Create system prompt with data context
+            system_prompt = f"""You are Fetii AI, a friendly and knowledgeable assistant specializing in Austin rideshare analytics. 
+
+Your personality:
+- Conversational and helpful
+- Provide specific data-driven insights
+- Use the actual data provided in context
+- Format responses clearly with key numbers highlighted
+- Be enthusiastic about patterns and trends
+- Keep responses concise but informative (under 150 words)
+
+Current Austin rideshare data context:
+{context}
+
+Important: Always use the specific numbers and data from the context above. Don't make up statistics.
+
+User query: {query}
+
+Response:"""
+            
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": system_prompt}
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.7,
+                    "maxOutputTokens": 200,
+                    "topP": 0.8,
+                    "topK": 40
+                }
+            }
+            
+            response = requests.post(
+                f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={self.gemini_api_key}',
+                headers={'Content-Type': 'application/json'},
+                json=payload,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if 'candidates' in result and len(result['candidates']) > 0:
+                    content = result['candidates'][0]['content']['parts'][0]['text']
+                    return content.strip()
+            elif response.status_code == 429:
+                print("⚠️ Gemini API rate limit reached - falling back to pattern-based response")
+                self.ai_available = False
+                return None
+            elif response.status_code == 400:
+                print("⚠️ Invalid Gemini API request")
+                self.ai_available = False
+                return None
+            else:
+                print(f"Gemini API error: {response.status_code} - {response.text}")
+                
+        except requests.exceptions.Timeout:
+            print("⚠️ Gemini API timeout - falling back to pattern-based response")
+            return None
+        except Exception as e:
+            print(f"Error calling Gemini API: {str(e)}")
+            
+        return None
+    
+    def _pattern_based_response(self, query: str) -> str:
+        """Fallback pattern-based response system."""
+        query_type, params = self._parse_query(query)
+        
+        if query_type == 'greetings':
+            return self._handle_greetings(query)
+        elif query_type == 'casual_conversation':
+            return self._handle_casual_conversation(query)
+        elif query_type == 'location_stats':
+            return self._handle_location_stats(params, query)
+        elif query_type == 'time_patterns':
+            return self._handle_time_patterns(params)
+        elif query_type == 'group_size':
+            return self._handle_group_size(params)
+        elif query_type == 'top_locations':
+            return self._handle_top_locations(params)
+        elif query_type == 'general_stats':
+            return self._handle_general_stats()
+        else:
+            return self._handle_fallback(query)
     
     def _parse_query(self, query: str) -> Tuple[str, Dict[str, Any]]:
         """Parse the user query to determine intent and extract parameters."""
         params = {}
         
+        # Check for greetings first
+        for pattern in self.query_patterns['greetings']:
+            if re.search(pattern, query, re.IGNORECASE):
+                return 'greetings', params
+        
+        # Check for casual conversation
+        for pattern in self.query_patterns['casual_conversation']:
+            if re.search(pattern, query, re.IGNORECASE):
+                return 'casual_conversation', params
+        
+        # Check for location stats
         for pattern in self.query_patterns['location_stats']:
             match = re.search(pattern, query, re.IGNORECASE)
             if match:
                 location = match.group(1).strip()
-                location = self._clean_location_from_query(location)
                 if location:
                     params['location'] = location
                     return 'location_stats', params
         
+        # Check other patterns
         for pattern in self.query_patterns['time_patterns']:
             if re.search(pattern, query, re.IGNORECASE):
-                group_match = re.search(r'(\d+)\+?', query)
-                if group_match:
-                    params['min_group_size'] = int(group_match.group(1))
                 return 'time_patterns', params
         
         for pattern in self.query_patterns['group_size']:
-            match = re.search(pattern, query, re.IGNORECASE)
-            if match:
-                if match.groups():
-                    params['group_size'] = int(match.group(1))
+            if re.search(pattern, query, re.IGNORECASE):
                 return 'group_size', params
         
         for pattern in self.query_patterns['top_locations']:
             if re.search(pattern, query, re.IGNORECASE):
-                if 'pickup' in query or 'pick up' in query:
-                    params['location_type'] = 'pickup'
-                elif 'drop' in query:
-                    params['location_type'] = 'dropoff'
-                else:
-                    params['location_type'] = 'both'
                 return 'top_locations', params
-        
-        for pattern in self.query_patterns['demographics']:
-            match = re.search(pattern, query, re.IGNORECASE)
-            if match and match.groups():
-                if len(match.groups()) == 2:
-                    params['age_range'] = (int(match.group(1)), int(match.group(2)))
-                return 'demographics', params
         
         for pattern in self.query_patterns['general_stats']:
             if re.search(pattern, query, re.IGNORECASE):
@@ -148,212 +334,76 @@ class FetiiChatbot:
         
         return 'general_stats', params
     
-    def _fuzzy_search_location(self, query_location: str) -> List[Tuple[str, int]]:
-        """Search for locations using fuzzy matching."""
-        all_pickups = self.data_processor.df['pickup_main'].value_counts()
-        all_dropoffs = self.data_processor.df['dropoff_main'].value_counts()
+    def _handle_greetings(self, query: str) -> str:
+        """Handle greeting messages."""
+        if any(word in query.lower() for word in ['thanks', 'thank you']):
+            return "You're welcome! Happy to help you explore Austin rideshare patterns."
         
-        all_locations = {}
-        for location, count in all_pickups.items():
-            all_locations[location] = all_locations.get(location, 0) + count
-        for location, count in all_dropoffs.items():
-            all_locations[location] = all_locations.get(location, 0) + count
-        
-        matches = []
-        query_lower = query_location.lower()
-        
-        # Exact match
-        for location, count in all_locations.items():
-            if query_lower == location.lower():
-                matches.append((location, count))
-        
-        # Partial match
-        if not matches:
-            for location, count in all_locations.items():
-                if query_lower in location.lower() or location.lower() in query_lower:
-                    matches.append((location, count))
-        
-        # Word match
-        if not matches:
-            query_words = query_lower.split()
-            for location, count in all_locations.items():
-                location_lower = location.lower()
-                if any(word in location_lower for word in query_words if len(word) > 2):
-                    matches.append((location, count))
-        
-        matches.sort(key=lambda x: x[1], reverse=True)
-        return matches[:5] 
+        return ("Hello! I'm Fetii AI, your Austin rideshare analytics assistant. "
+               "I can help you understand trip patterns, popular locations, peak hours, and group behaviors. "
+               "What would you like to explore?")
     
-    def _generate_response(self, query_type: str, params: Dict[str, Any], original_query: str) -> str:
-        """Generate a response based on the query type and parameters."""
+    def _handle_casual_conversation(self, query: str) -> str:
+        """Handle casual conversation."""
+        query_lower = query.lower()
         
-        if query_type == 'location_stats':
-            return self._handle_location_stats(params, original_query)
-        elif query_type == 'time_patterns':
-            return self._handle_time_patterns(params)
-        elif query_type == 'group_size':
-            return self._handle_group_size(params)
-        elif query_type == 'top_locations':
-            return self._handle_top_locations(params)
-        elif query_type == 'demographics':
-            return self._handle_demographics(params)
-        elif query_type == 'general_stats':
-            return self._handle_general_stats()
-        else:
-            return self._handle_fallback(original_query)
+        if any(phrase in query_lower for phrase in ['how are you', 'how\'s it going']):
+            return ("I'm doing great, thanks for asking! I'm excited to help you explore Austin rideshare data. "
+                   "What aspect of the data interests you most?")
+        
+        if any(phrase in query_lower for phrase in ['who are you', 'what are you']):
+            return ("I'm Fetii AI, your specialized assistant for Austin rideshare analytics! "
+                   "I analyze real Austin rideshare data to provide insights about trip patterns, "
+                   "popular destinations, peak hours, and group behaviors. What would you like to explore?")
+        
+        return ("I'm here to help you explore Austin rideshare data! "
+               "Ask me about trip patterns, locations, or any trends you're curious about.")
     
-    def _handle_location_stats(self, params: Dict[str, Any], original_query: str) -> str:
-        """Handle location-specific statistics queries."""
+    def _handle_location_stats(self, params: Dict[str, Any], query: str) -> str:
+        """Handle location-specific queries."""
         location = params.get('location', '')
-        
         stats = self.data_processor.get_location_stats(location)
         
         if stats['pickup_count'] == 0 and stats['dropoff_count'] == 0:
-            matches = self._fuzzy_search_location(location)
-            
-            if matches:
-                best_match = matches[0][0]
-                stats = self.data_processor.get_location_stats(best_match)
-                
-                if stats['pickup_count'] > 0 or stats['dropoff_count'] > 0:
-                    response = f"<strong>Found results for '{best_match}'</strong> (closest match to '{location}'):\n\n"
-                else:
-                    response = f"I couldn't find exact data for '{location}'. Did you mean one of these?\n\n"
-                    for match_location, count in matches[:3]:
-                        response += f"• <strong>{match_location}</strong> ({count} total trips)\n"
-                    response += f"\nTry asking: 'Tell me about {matches[0][0]}'"
-                    return response
-            else:
-                return f"I couldn't find any trips associated with '{location}'. Try checking the spelling or asking about a different location like 'West Campus' or 'The Aquarium on 6th'."
-        else:
-            best_match = location.title()
-            response = f"<strong>Stats for {best_match}:</strong>\n\n"
+            return f"I couldn't find trips for '{location}'. Try a different location like 'West Campus' or 'Downtown'."
+        
+        response = f"**Stats for {location.title()}:**\n\n"
         
         if stats['pickup_count'] > 0:
-            response += f"<strong>{stats['pickup_count']} pickup trips</strong> with an average group size of {stats['avg_group_size_pickup']:.1f}\n"
-            if stats['peak_hours_pickup']:
-                peak_hours = ', '.join([utils.format_time(h) for h in stats['peak_hours_pickup']])
-                response += f"Most popular pickup times: {peak_hours}\n"
+            response += f"**{stats['pickup_count']} pickup trips** with average group size {stats['avg_group_size_pickup']:.1f}\n"
         
         if stats['dropoff_count'] > 0:
-            response += f"<strong>{stats['dropoff_count']} drop-off trips</strong> with an average group size of {stats['avg_group_size_dropoff']:.1f}\n"
-            if stats['peak_hours_dropoff']:
-                peak_hours = ', '.join([utils.format_time(h) for h in stats['peak_hours_dropoff']])
-                response += f"Most popular drop-off times: {peak_hours}\n"
-        
-        total_trips = stats['pickup_count'] + stats['dropoff_count']
-        insights = self.data_processor.get_quick_insights()
-        percentage = (total_trips / insights['total_trips']) * 100
-        
-        response += f"\n<strong>Insight:</strong> This location accounts for {percentage:.1f}% of all Austin trips!"
-        
-        if any(word in original_query for word in ['last', 'this', 'month', 'week', 'yesterday', 'today']):
-            response += f"\n\n<strong>Note:</strong> This data covers our full Austin dataset. For specific time periods, the patterns shown represent typical activity for this location."
+            response += f"**{stats['dropoff_count']} drop-off trips** with average group size {stats['avg_group_size_dropoff']:.1f}\n"
         
         return response
     
     def _handle_time_patterns(self, params: Dict[str, Any]) -> str:
         """Handle time pattern queries."""
-        min_group_size = params.get('min_group_size', None)
-        
-        time_data = self.data_processor.get_time_patterns(min_group_size)
-        
-        response = "<strong>Peak Riding Times:</strong>\n\n"
-        
-        if min_group_size:
-            response += f"<em>For groups of {min_group_size}+ riders:</em>\n\n"
-        
+        time_data = self.data_processor.get_time_patterns()
         hourly_counts = time_data['hourly_counts']
-        top_hours = sorted(hourly_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_hours = sorted(hourly_counts.items(), key=lambda x: x[1], reverse=True)[:3]
         
-        response += "<strong>Busiest Hours:</strong>\n"
+        response = "**Peak Hours Analysis:**\n\n"
         for i, (hour, count) in enumerate(top_hours, 1):
-            time_label = utils.format_time(hour)
-            response += f"{i}. <strong>{time_label}</strong> - {count} trips\n"
-        
-        time_categories = time_data['time_category_counts']
-        response += "\n<strong>By Time Period:</strong>\n"
-        for period, count in sorted(time_categories.items(), key=lambda x: x[1], reverse=True):
-            response += f"• <strong>{period}:</strong> {count} trips\n"
-        
-        peak_hour = top_hours[0][0]
-        peak_count = top_hours[0][1]
-        response += f"\n<strong>Insight:</strong> {utils.format_time(peak_hour)} is the absolute peak with {peak_count} trips!"
+            response += f"{i}. **{utils.format_time(hour)}** - {count} trips\n"
         
         return response
     
     def _handle_group_size(self, params: Dict[str, Any]) -> str:
         """Handle group size queries."""
-        target_size = params.get('group_size', 6)
-        
         insights = self.data_processor.get_quick_insights()
-        group_distribution = insights['group_size_distribution']
-        
-        response = f"<strong>Group Size Analysis ({target_size}+ passengers):</strong>\n\n"
-        
-        large_group_trips = sum(count for size, count in group_distribution.items() if size >= target_size)
-        total_trips = insights['total_trips']
-        percentage = (large_group_trips / total_trips) * 100
-        
-        response += f"• <strong>{large_group_trips} trips</strong> had {target_size}+ passengers ({percentage:.1f}% of all trips)\n"
-        
-        response += f"\n<strong>Breakdown of {target_size}+ passenger groups:</strong>\n"
-        large_groups = {size: count for size, count in group_distribution.items() if size >= target_size}
-        for size, count in sorted(large_groups.items(), key=lambda x: x[1], reverse=True)[:8]:
-            group_pct = (count / large_group_trips) * 100 if large_group_trips > 0 else 0
-            response += f"• <strong>{size} passengers:</strong> {count} trips ({group_pct:.1f}%)\n"
-        
-        avg_size = insights['avg_group_size']
-        response += f"\n<strong>Insight:</strong> Average group size is {avg_size:.1f} passengers - most rides are group experiences!"
-        
+        response = f"**Group Size Analysis:**\n\n"
+        response += f"Average group size: **{insights['avg_group_size']:.1f} passengers**\n"
+        response += f"Large groups (6+): **{insights['large_groups_pct']:.1f}%** of all trips"
         return response
     
     def _handle_top_locations(self, params: Dict[str, Any]) -> str:
         """Handle top locations queries."""
-        location_type = params.get('location_type', 'both')
         insights = self.data_processor.get_quick_insights()
+        response = "**Top Pickup Locations:**\n\n"
         
-        response = "<strong>Most Popular Locations:</strong>\n\n"
-        
-        if location_type in ['pickup', 'both']:
-            response += "<strong>Top Pickup Spots:</strong>\n"
-            for i, (location, count) in enumerate(list(insights['top_pickups'])[:8], 1):
-                response += f"{i}. <strong>{location}</strong> - {count} pickups\n"
-        
-        if location_type in ['dropoff', 'both']:
-            if location_type == 'both':
-                response += "\n<strong>Top Drop-off Destinations:</strong>\n"
-            else:
-                response += "<strong>Top Drop-off Destinations:</strong>\n"
-            for i, (location, count) in enumerate(list(insights['top_dropoffs'])[:8], 1):
-                response += f"{i}. <strong>{location}</strong> - {count} drop-offs\n"
-        
-        if location_type in ['pickup', 'both']:
-            top_pickup = list(insights['top_pickups'])[0]
-            response += f"\n<strong>Insight:</strong> {top_pickup[0]} dominates pickups with {top_pickup[1]} trips!"
-        
-        return response
-    
-    def _handle_demographics(self, params: Dict[str, Any]) -> str:
-        """Handle demographics queries."""
-        age_range = params.get('age_range', (18, 24))
-        
-        response = f"<strong>Demographics Analysis ({age_range[0]}-{age_range[1]} year olds):</strong>\n\n"
-        response += "I'd love to help with demographic analysis, but I don't currently have access to rider age data in this dataset. "
-        response += "However, I can tell you about the locations and times that are popular with different group sizes!\n\n"
-        
-        insights = self.data_processor.get_quick_insights()
-        response += "<strong>Popular spots that might appeal to younger riders:</strong>\n"
-        
-        entertainment_spots = ['The Aquarium on 6th', 'Wiggle Room', "Shakespeare's", 'LUNA Rooftop', 'Green Light Social']
-        
-        for spot in entertainment_spots[:5]:
-            for location, count in insights['top_dropoffs']:
-                if spot.lower() in location.lower():
-                    response += f"• <strong>{location}</strong> - {count} drop-offs\n"
-                    break
-        
-        response += "\n<strong>Insight:</strong> Late night hours (10 PM - 1 AM) see the highest activity, which often correlates with younger demographics!"
+        for i, (location, count) in enumerate(list(insights['top_pickups'])[:5], 1):
+            response += f"{i}. **{location}** - {count} trips\n"
         
         return response
     
@@ -361,53 +411,22 @@ class FetiiChatbot:
         """Handle general statistics queries."""
         insights = self.data_processor.get_quick_insights()
         
-        response = "<strong>Fetii Austin Overview:</strong>\n\n"
-        
-        response += f"<strong>Total Trips Analyzed:</strong> {insights['total_trips']:,}\n"
-        response += f"<strong>Average Group Size:</strong> {insights['avg_group_size']:.1f} passengers\n"
-        response += f"<strong>Peak Hour:</strong> {utils.format_time(insights['peak_hour'])}\n"
-        response += f"<strong>Large Groups (6+):</strong> {insights['large_groups_count']} trips ({insights['large_groups_pct']:.1f}%)\n\n"
-        
-        response += "<strong>Top Hotspots:</strong>\n"
-        top_pickup = list(insights['top_pickups'])[0]
-        top_dropoff = list(insights['top_dropoffs'])[0]
-        response += f"• Most popular pickup: <strong>{top_pickup[0]}</strong> ({top_pickup[1]} trips)\n"
-        response += f"• Most popular destination: <strong>{top_dropoff[0]}</strong> ({top_dropoff[1]} trips)\n\n"
-        
-        group_dist = insights['group_size_distribution']
-        most_common_size = max(group_dist.items(), key=lambda x: x[1])
-        response += f"<strong>Most Common Group Size:</strong> {most_common_size[0]} passengers ({most_common_size[1]} trips)\n\n"
-        
-        response += "<strong>Key Insights:</strong>\n"
-        response += f"• {insights['large_groups_pct']:.0f}% of all rides are large groups (6+ people)\n"
-        response += "• Peak activity happens late evening (10-11 PM)\n"
-        response += "• West Campus dominates as the top pickup location\n"
-        response += "• Entertainment venues are the most popular destinations"
+        response = "**Austin Rideshare Overview:**\n\n"
+        response += f"**Total Trips:** {insights['total_trips']:,}\n"
+        response += f"**Average Group Size:** {insights['avg_group_size']:.1f} passengers\n"
+        response += f"**Peak Hour:** {utils.format_time(insights['peak_hour'])}\n"
+        response += f"**Large Groups:** {insights['large_groups_pct']:.1f}% (6+ passengers)"
         
         return response
     
     def _handle_fallback(self, query: str) -> str:
-        """Handle queries that don't match any specific pattern."""
-        response = "I'm not sure I understood that question perfectly. Here's what I can help you with:\n\n"
-        
-        response += "<strong>Location Questions:</strong>\n"
-        response += "• 'How many groups went to [location]?'\n"
-        response += "• 'Tell me about [location]'\n"
-        response += "• 'Top pickup/drop-off spots'\n\n"
-        
-        response += "<strong>Time Questions:</strong>\n"
-        response += "• 'When do large groups typically ride?'\n"
-        response += "• 'Peak hours for groups of 6+'\n"
-        response += "• 'Busiest times'\n\n"
-        
-        response += "<strong>Group Size Questions:</strong>\n"
-        response += "• 'How many trips had 10+ passengers?'\n"
-        response += "• 'Large group patterns'\n"
-        response += "• 'Average group size'\n\n"
-        
-        response += "Would you like to try asking one of these types of questions?"
-        
-        return response
+        """Handle unrecognized queries."""
+        return ("I can help you explore Austin rideshare data! Try asking about:\n\n"
+               "• Specific locations: 'Tell me about West Campus'\n"
+               "• Time patterns: 'What are the peak hours?'\n"
+               "• Group sizes: 'How many large groups ride?'\n"
+               "• General stats: 'Give me an overview'\n\n"
+               "What interests you most?")
     
     def get_conversation_history(self) -> List[Dict[str, str]]:
         """Get the conversation history."""
@@ -416,3 +435,11 @@ class FetiiChatbot:
     def clear_history(self):
         """Clear the conversation history."""
         self.conversation_history = []
+    
+    def set_gemini_api_key(self, api_key: str):
+        """Update Gemini API key and reinitialize connection."""
+        self.gemini_api_key = api_key
+        if api_key:
+            self._setup_gemini()
+        else:
+            self.ai_available = False
