@@ -162,15 +162,18 @@ class FetiiChatbot:
         matches = []
         query_lower = query_location.lower()
         
+        # Exact match
         for location, count in all_locations.items():
             if query_lower == location.lower():
                 matches.append((location, count))
         
+        # Partial match
         if not matches:
             for location, count in all_locations.items():
                 if query_lower in location.lower() or location.lower() in query_lower:
                     matches.append((location, count))
         
+        # Word match
         if not matches:
             query_words = query_lower.split()
             for location, count in all_locations.items():
@@ -186,22 +189,16 @@ class FetiiChatbot:
         
         if query_type == 'location_stats':
             return self._handle_location_stats(params, original_query)
-        
         elif query_type == 'time_patterns':
             return self._handle_time_patterns(params)
-        
         elif query_type == 'group_size':
             return self._handle_group_size(params)
-        
         elif query_type == 'top_locations':
             return self._handle_top_locations(params)
-        
         elif query_type == 'demographics':
             return self._handle_demographics(params)
-        
         elif query_type == 'general_stats':
             return self._handle_general_stats()
-        
         else:
             return self._handle_fallback(original_query)
     
@@ -219,39 +216,39 @@ class FetiiChatbot:
                 stats = self.data_processor.get_location_stats(best_match)
                 
                 if stats['pickup_count'] > 0 or stats['dropoff_count'] > 0:
-                    response = f"📍 **Found results for '{best_match}' (closest match to '{location}'):**\n\n"
+                    response = f"<strong>Found results for '{best_match}'</strong> (closest match to '{location}'):\n\n"
                 else:
-                    response = f"❓ I couldn't find exact data for '{location}'. Did you mean one of these?\n\n"
+                    response = f"I couldn't find exact data for '{location}'. Did you mean one of these?\n\n"
                     for match_location, count in matches[:3]:
-                        response += f"• **{match_location}** ({count} total trips)\n"
+                        response += f"• <strong>{match_location}</strong> ({count} total trips)\n"
                     response += f"\nTry asking: 'Tell me about {matches[0][0]}'"
                     return response
             else:
-                return f"❌ I couldn't find any trips associated with '{location}'. Try checking the spelling or asking about a different location like 'West Campus' or 'The Aquarium on 6th'."
+                return f"I couldn't find any trips associated with '{location}'. Try checking the spelling or asking about a different location like 'West Campus' or 'The Aquarium on 6th'."
         else:
             best_match = location.title()
-            response = f"📍 **Stats for {best_match}:**\n\n"
+            response = f"<strong>Stats for {best_match}:</strong>\n\n"
         
         if stats['pickup_count'] > 0:
-            response += f"🚗 **{stats['pickup_count']} pickup trips** with an average group size of {stats['avg_group_size_pickup']:.1f}\n"
+            response += f"<strong>{stats['pickup_count']} pickup trips</strong> with an average group size of {stats['avg_group_size_pickup']:.1f}\n"
             if stats['peak_hours_pickup']:
                 peak_hours = ', '.join([utils.format_time(h) for h in stats['peak_hours_pickup']])
-                response += f"⏰ Most popular pickup times: {peak_hours}\n"
+                response += f"Most popular pickup times: {peak_hours}\n"
         
         if stats['dropoff_count'] > 0:
-            response += f"🎯 **{stats['dropoff_count']} drop-off trips** with an average group size of {stats['avg_group_size_dropoff']:.1f}\n"
+            response += f"<strong>{stats['dropoff_count']} drop-off trips</strong> with an average group size of {stats['avg_group_size_dropoff']:.1f}\n"
             if stats['peak_hours_dropoff']:
                 peak_hours = ', '.join([utils.format_time(h) for h in stats['peak_hours_dropoff']])
-                response += f"⏰ Most popular drop-off times: {peak_hours}\n"
+                response += f"Most popular drop-off times: {peak_hours}\n"
         
         total_trips = stats['pickup_count'] + stats['dropoff_count']
         insights = self.data_processor.get_quick_insights()
         percentage = (total_trips / insights['total_trips']) * 100
         
-        response += f"\n💡 **Insight:** This location accounts for {percentage:.1f}% of all Austin trips!"
+        response += f"\n<strong>Insight:</strong> This location accounts for {percentage:.1f}% of all Austin trips!"
         
         if any(word in original_query for word in ['last', 'this', 'month', 'week', 'yesterday', 'today']):
-            response += f"\n\n📅 **Note:** This data covers our full Austin dataset. For specific time periods, the patterns shown represent typical activity for this location."
+            response += f"\n\n<strong>Note:</strong> This data covers our full Austin dataset. For specific time periods, the patterns shown represent typical activity for this location."
         
         return response
     
@@ -261,27 +258,27 @@ class FetiiChatbot:
         
         time_data = self.data_processor.get_time_patterns(min_group_size)
         
-        response = "⏰ **Peak Riding Times:**\n\n"
+        response = "<strong>Peak Riding Times:</strong>\n\n"
         
         if min_group_size:
-            response += f"*For groups of {min_group_size}+ riders:*\n\n"
+            response += f"<em>For groups of {min_group_size}+ riders:</em>\n\n"
         
         hourly_counts = time_data['hourly_counts']
         top_hours = sorted(hourly_counts.items(), key=lambda x: x[1], reverse=True)[:5]
         
-        response += "🔥 **Busiest Hours:**\n"
+        response += "<strong>Busiest Hours:</strong>\n"
         for i, (hour, count) in enumerate(top_hours, 1):
             time_label = utils.format_time(hour)
-            response += f"{i}. **{time_label}** - {count} trips\n"
+            response += f"{i}. <strong>{time_label}</strong> - {count} trips\n"
         
         time_categories = time_data['time_category_counts']
-        response += "\n📊 **By Time Period:**\n"
+        response += "\n<strong>By Time Period:</strong>\n"
         for period, count in sorted(time_categories.items(), key=lambda x: x[1], reverse=True):
-            response += f"• **{period}**: {count} trips\n"
+            response += f"• <strong>{period}:</strong> {count} trips\n"
         
         peak_hour = top_hours[0][0]
         peak_count = top_hours[0][1]
-        response += f"\n💡 **Insight:** {utils.format_time(peak_hour)} is the absolute peak with {peak_count} trips!"
+        response += f"\n<strong>Insight:</strong> {utils.format_time(peak_hour)} is the absolute peak with {peak_count} trips!"
         
         return response
     
@@ -292,22 +289,22 @@ class FetiiChatbot:
         insights = self.data_processor.get_quick_insights()
         group_distribution = insights['group_size_distribution']
         
-        response = f"👥 **Group Size Analysis ({target_size}+ passengers):**\n\n"
+        response = f"<strong>Group Size Analysis ({target_size}+ passengers):</strong>\n\n"
         
         large_group_trips = sum(count for size, count in group_distribution.items() if size >= target_size)
         total_trips = insights['total_trips']
         percentage = (large_group_trips / total_trips) * 100
         
-        response += f"• **{large_group_trips} trips** had {target_size}+ passengers ({percentage:.1f}% of all trips)\n"
+        response += f"• <strong>{large_group_trips} trips</strong> had {target_size}+ passengers ({percentage:.1f}% of all trips)\n"
         
-        response += f"\n📊 **Breakdown of {target_size}+ passenger groups:**\n"
+        response += f"\n<strong>Breakdown of {target_size}+ passenger groups:</strong>\n"
         large_groups = {size: count for size, count in group_distribution.items() if size >= target_size}
         for size, count in sorted(large_groups.items(), key=lambda x: x[1], reverse=True)[:8]:
             group_pct = (count / large_group_trips) * 100 if large_group_trips > 0 else 0
-            response += f"• **{size} passengers**: {count} trips ({group_pct:.1f}%)\n"
+            response += f"• <strong>{size} passengers:</strong> {count} trips ({group_pct:.1f}%)\n"
         
         avg_size = insights['avg_group_size']
-        response += f"\n💡 **Insight:** Average group size is {avg_size:.1f} passengers - most rides are group experiences!"
+        response += f"\n<strong>Insight:</strong> Average group size is {avg_size:.1f} passengers - most rides are group experiences!"
         
         return response
     
@@ -316,24 +313,24 @@ class FetiiChatbot:
         location_type = params.get('location_type', 'both')
         insights = self.data_processor.get_quick_insights()
         
-        response = "📍 **Most Popular Locations:**\n\n"
+        response = "<strong>Most Popular Locations:</strong>\n\n"
         
         if location_type in ['pickup', 'both']:
-            response += "🚗 **Top Pickup Spots:**\n"
+            response += "<strong>Top Pickup Spots:</strong>\n"
             for i, (location, count) in enumerate(list(insights['top_pickups'])[:8], 1):
-                response += f"{i}. **{location}** - {count} pickups\n"
+                response += f"{i}. <strong>{location}</strong> - {count} pickups\n"
         
         if location_type in ['dropoff', 'both']:
             if location_type == 'both':
-                response += "\n🎯 **Top Drop-off Destinations:**\n"
+                response += "\n<strong>Top Drop-off Destinations:</strong>\n"
             else:
-                response += "🎯 **Top Drop-off Destinations:**\n"
+                response += "<strong>Top Drop-off Destinations:</strong>\n"
             for i, (location, count) in enumerate(list(insights['top_dropoffs'])[:8], 1):
-                response += f"{i}. **{location}** - {count} drop-offs\n"
+                response += f"{i}. <strong>{location}</strong> - {count} drop-offs\n"
         
         if location_type in ['pickup', 'both']:
             top_pickup = list(insights['top_pickups'])[0]
-            response += f"\n💡 **Insight:** {top_pickup[0]} dominates pickups with {top_pickup[1]} trips!"
+            response += f"\n<strong>Insight:</strong> {top_pickup[0]} dominates pickups with {top_pickup[1]} trips!"
         
         return response
     
@@ -341,22 +338,22 @@ class FetiiChatbot:
         """Handle demographics queries."""
         age_range = params.get('age_range', (18, 24))
         
-        response = f"📊 **Demographics Analysis ({age_range[0]}-{age_range[1]} year olds):**\n\n"
+        response = f"<strong>Demographics Analysis ({age_range[0]}-{age_range[1]} year olds):</strong>\n\n"
         response += "I'd love to help with demographic analysis, but I don't currently have access to rider age data in this dataset. "
         response += "However, I can tell you about the locations and times that are popular with different group sizes!\n\n"
         
         insights = self.data_processor.get_quick_insights()
-        response += "🎓 **Popular spots that might appeal to younger riders:**\n"
+        response += "<strong>Popular spots that might appeal to younger riders:</strong>\n"
         
         entertainment_spots = ['The Aquarium on 6th', 'Wiggle Room', "Shakespeare's", 'LUNA Rooftop', 'Green Light Social']
         
         for spot in entertainment_spots[:5]:
             for location, count in insights['top_dropoffs']:
                 if spot.lower() in location.lower():
-                    response += f"• **{location}** - {count} drop-offs\n"
+                    response += f"• <strong>{location}</strong> - {count} drop-offs\n"
                     break
         
-        response += "\n💡 **Insight:** Late night hours (10 PM - 1 AM) see the highest activity, which often correlates with younger demographics!"
+        response += "\n<strong>Insight:</strong> Late night hours (10 PM - 1 AM) see the highest activity, which often correlates with younger demographics!"
         
         return response
     
@@ -364,24 +361,24 @@ class FetiiChatbot:
         """Handle general statistics queries."""
         insights = self.data_processor.get_quick_insights()
         
-        response = "📈 **Fetii Austin Overview:**\n\n"
+        response = "<strong>Fetii Austin Overview:</strong>\n\n"
         
-        response += f"🚗 **Total Trips Analyzed:** {insights['total_trips']:,}\n"
-        response += f"👥 **Average Group Size:** {insights['avg_group_size']:.1f} passengers\n"
-        response += f"⏰ **Peak Hour:** {utils.format_time(insights['peak_hour'])}\n"
-        response += f"🎉 **Large Groups (6+):** {insights['large_groups_count']} trips ({insights['large_groups_pct']:.1f}%)\n\n"
+        response += f"<strong>Total Trips Analyzed:</strong> {insights['total_trips']:,}\n"
+        response += f"<strong>Average Group Size:</strong> {insights['avg_group_size']:.1f} passengers\n"
+        response += f"<strong>Peak Hour:</strong> {utils.format_time(insights['peak_hour'])}\n"
+        response += f"<strong>Large Groups (6+):</strong> {insights['large_groups_count']} trips ({insights['large_groups_pct']:.1f}%)\n\n"
         
-        response += "🔥 **Top Hotspots:**\n"
+        response += "<strong>Top Hotspots:</strong>\n"
         top_pickup = list(insights['top_pickups'])[0]
         top_dropoff = list(insights['top_dropoffs'])[0]
-        response += f"• Most popular pickup: **{top_pickup[0]}** ({top_pickup[1]} trips)\n"
-        response += f"• Most popular destination: **{top_dropoff[0]}** ({top_dropoff[1]} trips)\n\n"
+        response += f"• Most popular pickup: <strong>{top_pickup[0]}</strong> ({top_pickup[1]} trips)\n"
+        response += f"• Most popular destination: <strong>{top_dropoff[0]}</strong> ({top_dropoff[1]} trips)\n\n"
         
         group_dist = insights['group_size_distribution']
         most_common_size = max(group_dist.items(), key=lambda x: x[1])
-        response += f"📊 **Most Common Group Size:** {most_common_size[0]} passengers ({most_common_size[1]} trips)\n\n"
+        response += f"<strong>Most Common Group Size:</strong> {most_common_size[0]} passengers ({most_common_size[1]} trips)\n\n"
         
-        response += "💡 **Key Insights:**\n"
+        response += "<strong>Key Insights:</strong>\n"
         response += f"• {insights['large_groups_pct']:.0f}% of all rides are large groups (6+ people)\n"
         response += "• Peak activity happens late evening (10-11 PM)\n"
         response += "• West Campus dominates as the top pickup location\n"
@@ -391,19 +388,19 @@ class FetiiChatbot:
     
     def _handle_fallback(self, query: str) -> str:
         """Handle queries that don't match any specific pattern."""
-        response = "🤔 I'm not sure I understood that question perfectly. Here's what I can help you with:\n\n"
+        response = "I'm not sure I understood that question perfectly. Here's what I can help you with:\n\n"
         
-        response += "📍 **Location Questions:**\n"
+        response += "<strong>Location Questions:</strong>\n"
         response += "• 'How many groups went to [location]?'\n"
         response += "• 'Tell me about [location]'\n"
         response += "• 'Top pickup/drop-off spots'\n\n"
         
-        response += "⏰ **Time Questions:**\n"
+        response += "<strong>Time Questions:</strong>\n"
         response += "• 'When do large groups typically ride?'\n"
         response += "• 'Peak hours for groups of 6+'\n"
         response += "• 'Busiest times'\n\n"
         
-        response += "👥 **Group Size Questions:**\n"
+        response += "<strong>Group Size Questions:</strong>\n"
         response += "• 'How many trips had 10+ passengers?'\n"
         response += "• 'Large group patterns'\n"
         response += "• 'Average group size'\n\n"
