@@ -69,9 +69,9 @@ classDiagram
         +create_distance_analysis()
     }
     
-    DataProcessor ||--|| FetiiChatbot : uses
-    DataProcessor ||--|| Visualizations : feeds data
-    FetiiChatbot ||--|| Visualizations : requests charts
+    DataProcessor --> FetiiChatbot : uses
+    DataProcessor --> Visualizations : feeds data
+    FetiiChatbot --> Visualizations : requests charts
 ```
 
 ## Data Flow
